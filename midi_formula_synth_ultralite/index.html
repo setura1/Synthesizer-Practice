@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>軽量MIDI数式シンセ</title>
+  <style>
+:root {
+  --bg: #0f172a;
+  --panel: #111827;
+  --line: #334155;
+  --text: #e5e7eb;
+  --muted: #94a3b8;
+  --accent: #22c55e;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: linear-gradient(180deg, #020617 0%, #0f172a 100%);
+  color: var(--text);
+}
+
+.app {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.hero {
+  margin-bottom: 18px;
+}
+.hero h1 {
+  margin: 0 0 8px;
+  font-size: 2rem;
+}
+.hero p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.panel {
+  background: rgba(17, 24, 39, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 18px;
+  margin-bottom: 18px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+label span,
+.status-grid strong,
+.seek-wrap span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+input[type="file"],
+select,
+input[type="range"],
+button {
+  width: 100%;
+}
+
+input[type="file"],
+select {
+  background: #0b1220;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+button {
+  background: var(--accent);
+  color: #04130a;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.seek-wrap {
+  margin-top: 14px;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.status-grid > div {
+  background: #0b1220;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 18px;
+}
+
+canvas {
+  width: 100%;
+  height: auto;
+  background: #020617;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+pre {
+  margin: 0;
+  background: #020617;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  color: #bfdbfe;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.formula-note {
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+@media (max-width: 860px) {
+  .split { grid-template-columns: 1fr; }
+  .app { padding: 14px; }
+}
+
+</style>
+</head>
+<body>
+  <main class="app">
+    <header class="hero">
+      <h1>軽量MIDI数式シンセ</h1>
+      <p>リアルタイム合成ではなく、MIDIを先に全部レンダリングしてから再生する軽量版です。</p>
+    </header>
+
+    <section class="panel controls">
+      <div class="grid">
+        <label>
+          <span>MIDIファイル</span>
+          <input id="midiFileInput" type="file" accept=".mid,.midi" />
+        </label>
+
+        <label>
+          <span>音色</span>
+          <select id="instrumentSelect">
+            <option value="famicom">Famicom Pulse</option>
+            <option value="square">Square</option>
+            <option value="piano">Piano Lite</option>
+            <option value="guitar">Guitar Lite</option>
+            <option value="sine">Sine</option>
+          </select>
+        </label>
+
+        <label>
+          <span>サンプルレート</span>
+          <select id="sampleRateSelect">
+            <option value="22050">22050 Hz 軽量</option>
+            <option value="32000">32000 Hz 標準</option>
+            <option value="44100">44100 Hz 高め</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Famicom duty</span>
+          <select id="dutySelect">
+            <option value="0.125">12.5%</option>
+            <option value="0.25" selected>25%</option>
+            <option value="0.5">50%</option>
+          </select>
+        </label>
+
+        <label>
+          <span>最大同時発音数</span>
+          <select id="polyphonySelect">
+            <option value="4">4</option>
+            <option value="8" selected>8</option>
+            <option value="12">12</option>
+            <option value="16">16</option>
+          </select>
+        </label>
+
+        <label>
+          <span>音量</span>
+          <input id="volumeSlider" type="range" min="0.1" max="1.0" step="0.01" value="0.7" />
+        </label>
+      </div>
+
+      <div class="actions">
+        <button id="renderBtn">1. MIDIを読み込んでレンダリング</button>
+        <button id="playBtn" disabled>2. 再生</button>
+        <button id="pauseBtn" disabled>一時停止</button>
+        <button id="stopBtn" disabled>停止</button>
+      </div>
+
+      <label class="seek-wrap">
+        <span>再生位置</span>
+        <input id="seekSlider" type="range" min="0" max="1000" value="0" disabled />
+      </label>
+
+      <div class="status-grid">
+        <div><strong>状態</strong><span id="statusText">MIDIを選んでください</span></div>
+        <div><strong>ファイル</strong><span id="fileName">-</span></div>
+        <div><strong>音数</strong><span id="noteCount">-</span></div>
+        <div><strong>長さ</strong><span id="durationText">-</span></div>
+        <div><strong>テンポ</strong><span id="tempoText">-</span></div>
+        <div><strong>レンダ進捗</strong><span id="progressText">0%</span></div>
+      </div>
+    </section>
+
+    <section class="panel split">
+      <div>
+        <h2>波形プレビュー</h2>
+        <canvas id="waveCanvas" width="900" height="220"></canvas>
+      </div>
+      <div>
+        <h2>数式メモ</h2>
+        <pre id="formulaBox"></pre>
+        <p id="formulaNote" class="formula-note"></p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>軽量化方針</h2>
+      <ul>
+        <li>リアルタイム合成をやめて、再生前に全部レンダリング</li>
+        <li>解析表示を波形だけに絞って負荷削減</li>
+        <li>依存ライブラリなし。MIDIパーサも内蔵</li>
+        <li>モノラル固定。サンプルレートも選択可能</li>
+        <li>最大同時発音数を制限して重いMIDIでも動かしやすくする</li>
+      </ul>
+    </section>
+  </main>
+
+  <script>
+const ui = {
+  midiFileInput: document.getElementById('midiFileInput'),
+  instrumentSelect: document.getElementById('instrumentSelect'),
+  sampleRateSelect: document.getElementById('sampleRateSelect'),
+  dutySelect: document.getElementById('dutySelect'),
+  polyphonySelect: document.getElementById('polyphonySelect'),
+  volumeSlider: document.getElementById('volumeSlider'),
+  renderBtn: document.getElementById('renderBtn'),
+  playBtn: document.getElementById('playBtn'),
+  pauseBtn: document.getElementById('pauseBtn'),
+  stopBtn: document.getElementById('stopBtn'),
+  seekSlider: document.getElementById('seekSlider'),
+  statusText: document.getElementById('statusText'),
+  fileName: document.getElementById('fileName'),
+  noteCount: document.getElementById('noteCount'),
+  durationText: document.getElementById('durationText'),
+  tempoText: document.getElementById('tempoText'),
+  progressText: document.getElementById('progressText'),
+  waveCanvas: document.getElementById('waveCanvas'),
+  formulaBox: document.getElementById('formulaBox'),
+  formulaNote: document.getElementById('formulaNote')
+};
+
+const state = {
+  midiArrayBuffer: null,
+  midiData: null,
+  renderedPCM: null,
+  renderedAudioBuffer: null,
+  audioCtx: null,
+  source: null,
+  gainNode: null,
+  playStartedAt: 0,
+  pauseOffset: 0,
+  isPlaying: false,
+  rafId: 0,
+  rendering: false
+};
+
+function setStatus(text) {
+  ui.statusText.textContent = text;
+}
+
+function midiToFrequency(note) {
+  return 440 * Math.pow(2, (note - 69) / 12);
+}
+
+function secText(sec) {
+  if (!Number.isFinite(sec)) return '-';
+  const m = Math.floor(sec / 60);
+  const s = sec - m * 60;
+  return `${m}:${s.toFixed(1).padStart(4, '0')}`;
+}
+
+function clamp(v, lo, hi) {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+function ensureAudio() {
+  if (!state.audioCtx) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    state.audioCtx = new AudioContextClass();
+    state.gainNode = state.audioCtx.createGain();
+    state.gainNode.gain.value = parseFloat(ui.volumeSlider.value);
+    state.gainNode.connect(state.audioCtx.destination);
+  }
+}
+
+function stopPlayback(resetOffset = true) {
+  if (state.source) {
+    try { state.source.stop(); } catch (_) {}
+    state.source.disconnect();
+    state.source = null;
+  }
+  state.isPlaying = false;
+  cancelAnimationFrame(state.rafId);
+  if (resetOffset) {
+    state.pauseOffset = 0;
+    ui.seekSlider.value = '0';
+  }
+  ui.playBtn.disabled = !state.renderedAudioBuffer;
+  ui.pauseBtn.disabled = true;
+  ui.stopBtn.disabled = !state.renderedAudioBuffer;
+}
+
+function currentPlaybackTime() {
+  if (!state.isPlaying) return state.pauseOffset;
+  return clamp(state.audioCtx.currentTime - state.playStartedAt, 0, state.renderedAudioBuffer.duration);
+}
+
+function updateSeekLoop() {
+  if (!state.renderedAudioBuffer) return;
+  const current = currentPlaybackTime();
+  const dur = state.renderedAudioBuffer.duration;
+  ui.seekSlider.value = String(Math.floor((current / dur) * 1000));
+  if (state.isPlaying) {
+    state.rafId = requestAnimationFrame(updateSeekLoop);
+  }
+}
+
+function playRendered() {
+  if (!state.renderedAudioBuffer) return;
+  ensureAudio();
+  state.audioCtx.resume();
+  stopPlayback(false);
+  state.source = state.audioCtx.createBufferSource();
+  state.source.buffer = state.renderedAudioBuffer;
+  state.gainNode.gain.value = parseFloat(ui.volumeSlider.value);
+  state.source.connect(state.gainNode);
+  state.playStartedAt = state.audioCtx.currentTime - state.pauseOffset;
+  state.source.start(0, state.pauseOffset);
+  state.isPlaying = true;
+  ui.playBtn.disabled = true;
+  ui.pauseBtn.disabled = false;
+  ui.stopBtn.disabled = false;
+  setStatus('再生中');
+  state.source.onended = () => {
+    if (state.isPlaying && currentPlaybackTime() >= state.renderedAudioBuffer.duration - 0.05) {
+      stopPlayback(true);
+      setStatus('再生完了');
+    }
+  };
+  updateSeekLoop();
+}
+
+function pauseRendered() {
+  if (!state.isPlaying) return;
+  state.pauseOffset = currentPlaybackTime();
+  stopPlayback(false);
+  ui.playBtn.disabled = false;
+  setStatus('一時停止');
+}
+
+function readVarLen(view, cursor) {
+  let value = 0;
+  while (true) {
+    const b = view.getUint8(cursor.offset++);
+    value = (value << 7) | (b & 0x7f);
+    if ((b & 0x80) === 0) break;
+  }
+  return value;
+}
+
+function readAscii(view, offset, length) {
+  let s = '';
+  for (let i = 0; i < length; i++) s += String.fromCharCode(view.getUint8(offset + i));
+  return s;
+}
+
+function parseMidi(arrayBuffer) {
+  const view = new DataView(arrayBuffer);
+  let offset = 0;
+
+  function readU32() {
+    const v = view.getUint32(offset);
+    offset += 4;
+    return v;
+  }
+  function readU16() {
+    const v = view.getUint16(offset);
+    offset += 2;
+    return v;
+  }
+
+  if (readAscii(view, offset, 4) !== 'MThd') throw new Error('MIDIヘッダが見つかりません');
+  offset += 4;
+  const headerLength = readU32();
+  const format = readU16();
+  const trackCount = readU16();
+  const division = readU16();
+  offset += Math.max(0, headerLength - 6);
+
+  if (division & 0x8000) {
+    throw new Error('SMPTE形式のMIDIはこの軽量版では未対応です');
+  }
+  const ppq = division;
+  const tempoEvents = [{ tick: 0, mpqn: 500000 }];
+  const notes = [];
+  const trackNames = [];
+
+  for (let trackIndex = 0; trackIndex < trackCount; trackIndex++) {
+    if (readAscii(view, offset, 4) !== 'MTrk') throw new Error('MTrkが見つかりません');
+    offset += 4;
+    const trackLength = readU32();
+    const trackEnd = offset + trackLength;
+    const noteStarts = new Map();
+    let tick = 0;
+    let runningStatus = 0;
+    let trackName = `Track ${trackIndex + 1}`;
+
+    while (offset < trackEnd) {
+      const deltaRef = { offset };
+      const delta = readVarLen(view, deltaRef);
+      offset = deltaRef.offset;
+      tick += delta;
+      let status = view.getUint8(offset++);
+      if (status < 0x80) {
+        offset--;
+        status = runningStatus;
+      } else {
+        runningStatus = status;
+      }
+
+      if (status === 0xff) {
+        const type = view.getUint8(offset++);
+        const lenRef = { offset };
+        const len = readVarLen(view, lenRef);
+        offset = lenRef.offset;
+        if (type === 0x51 && len === 3) {
+          const mpqn = (view.getUint8(offset) << 16) | (view.getUint8(offset + 1) << 8) | view.getUint8(offset + 2);
+          tempoEvents.push({ tick, mpqn });
+        } else if (type === 0x03) {
+          trackName = readAscii(view, offset, len);
+        }
+        offset += len;
+        continue;
+      }
+
+      if (status === 0xf0 || status === 0xf7) {
+        const lenRef = { offset };
+        const len = readVarLen(view, lenRef);
+        offset = lenRef.offset;
+        offset += len;
+        continue;
+      }
+
+      const eventType = status & 0xf0;
+      const channel = status & 0x0f;
+      const data1 = view.getUint8(offset++);
+      const needsTwo = !(eventType === 0xc0 || eventType === 0xd0);
+      const data2 = needsTwo ? view.getUint8(offset++) : 0;
+
+      if (channel === 9) continue;
+
+      if (eventType === 0x90 && data2 > 0) {
+        const key = `${channel}_${data1}`;
+        const stack = noteStarts.get(key) || [];
+        stack.push({ tick, velocity: data2 });
+        noteStarts.set(key, stack);
+      } else if (eventType === 0x80 || (eventType === 0x90 && data2 === 0)) {
+        const key = `${channel}_${data1}`;
+        const stack = noteStarts.get(key);
+        const start = stack && stack.length ? stack.shift() : null;
+        if (start) {
+          if (tick > start.tick) {
+            notes.push({
+              midi: data1,
+              startTick: start.tick,
+              endTick: tick,
+              velocity: start.velocity,
+              channel,
+              trackIndex,
+              trackName
+            });
+          }
+          if (!stack.length) noteStarts.delete(key);
+        }
+      }
+    }
+    trackNames.push(trackName);
+    offset = trackEnd;
+  }
+
+  tempoEvents.sort((a, b) => a.tick - b.tick);
+  const dedupTempo = [];
+  for (const ev of tempoEvents) {
+    if (dedupTempo.length && dedupTempo[dedupTempo.length - 1].tick === ev.tick) {
+      dedupTempo[dedupTempo.length - 1] = ev;
+    } else {
+      dedupTempo.push(ev);
+    }
+  }
+
+  const cumSec = new Array(dedupTempo.length).fill(0);
+  for (let i = 1; i < dedupTempo.length; i++) {
+    const prev = dedupTempo[i - 1];
+    const cur = dedupTempo[i];
+    const deltaTicks = cur.tick - prev.tick;
+    cumSec[i] = cumSec[i - 1] + deltaTicks * (prev.mpqn / 1000000) / ppq;
+  }
+
+  function tickToSec(tick) {
+    let lo = 0;
+    let hi = dedupTempo.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (dedupTempo[mid].tick <= tick) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    const idx = Math.max(0, hi);
+    const ev = dedupTempo[idx];
+    return cumSec[idx] + (tick - ev.tick) * (ev.mpqn / 1000000) / ppq;
+  }
+
+  const noteObjects = notes.map((n) => ({
+    ...n,
+    startSec: tickToSec(n.startTick),
+    endSec: tickToSec(n.endTick),
+  })).filter((n) => n.endSec > n.startSec);
+
+  noteObjects.sort((a, b) => a.startSec - b.startSec || a.midi - b.midi);
+
+  const durationSec = noteObjects.length ? Math.max(...noteObjects.map((n) => n.endSec)) : 0;
+  const bpm = dedupTempo.length ? (60000000 / dedupTempo[0].mpqn) : 120;
+
+  return {
+    format,
+    trackCount,
+    ppq,
+    trackNames,
+    tempoEvents: dedupTempo,
+    notes: noteObjects,
+    durationSec,
+    bpm
+  };
+}
+
+function getInstrumentDefinition(name, duty) {
+  const table = {
+    sine: {
+      formula: 'x(t) = A sin(2πft)',
+      note: '最小の基準波。倍音がなく、最も軽い。',
+      adsr: { a: 0.003, d: 0.06, s: 0.85, r: 0.08 },
+      osc: (phase, t) => Math.sin(phase)
+    },
+    square: {
+      formula: 'x(t) = A sgn(sin(2πft))',
+      note: '矩形波。軽量で、奇数次倍音を含む。',
+      adsr: { a: 0.003, d: 0.04, s: 0.75, r: 0.08 },
+      osc: (phase) => (Math.sin(phase) >= 0 ? 1 : -1)
+    },
+    famicom: {
+      formula: `x(t) = A   (0 <= frac(ft) < ${duty})\nx(t) = -A  (${duty} <= frac(ft) < 1)`,
+      note: 'パルス波。ファミコン風の学習用プリセット。',
+      adsr: { a: 0.001, d: 0.03, s: 0.68, r: 0.05 },
+      osc: (phase) => {
+        const frac = (phase / (2 * Math.PI)) % 1;
+        const u = frac < 0 ? frac + 1 : frac;
+        return u < duty ? 1 : -1;
+      }
+    },
+    piano: {
+      formula: 'x(t) = e^(-a t){sin(2πft) + 0.45 sin(4πft) + 0.18 sin(6πft)}',
+      note: '減衰付き倍音合成。軽量なピアノ風。',
+      adsr: { a: 0.002, d: 0.16, s: 0.22, r: 0.22 },
+      osc: (phase, t) => (
+        Math.sin(phase) +
+        0.45 * Math.exp(-2.6 * t) * Math.sin(2 * phase) +
+        0.18 * Math.exp(-4.8 * t) * Math.sin(3 * phase)
+      )
+    },
+    guitar: {
+      formula: 'x(t) = e^(-a t){sin(2πft) + 0.30 sin(4πft+φ2) + 0.12 sin(6πft+φ3)}',
+      note: '減衰付き倍音合成。軽量なギター風。',
+      adsr: { a: 0.001, d: 0.12, s: 0.18, r: 0.28 },
+      osc: (phase, t) => (
+        Math.sin(phase) +
+        0.30 * Math.exp(-2.2 * t) * Math.sin(2 * phase + 0.25) +
+        0.12 * Math.exp(-4.0 * t) * Math.sin(3 * phase + 0.6)
+      )
+    }
+  };
+  return table[name];
+}
+
+function envAt(t, hold, adsr) {
+  if (t < 0) return 0;
+  if (t < adsr.a) return adsr.a <= 0 ? 1 : t / adsr.a;
+  if (t < adsr.a + adsr.d) {
+    const u = (t - adsr.a) / Math.max(adsr.d, 1e-6);
+    return 1 - (1 - adsr.s) * u;
+  }
+  if (t < hold) return adsr.s;
+  if (t < hold + adsr.r) {
+    const u = (t - hold) / Math.max(adsr.r, 1e-6);
+    return adsr.s * (1 - u);
+  }
+  return 0;
+}
+
+function limitPolyphony(notes, polyphony) {
+  const active = [];
+  const kept = [];
+
+  for (const note of notes) {
+    for (let i = active.length - 1; i >= 0; i--) {
+      if (active[i].endSec <= note.startSec) active.splice(i, 1);
+    }
+    if (active.length < polyphony) {
+      active.push(note);
+      kept.push(note);
+    } else {
+      let minIndex = 0;
+      for (let i = 1; i < active.length; i++) {
+        if (active[i].velocity < active[minIndex].velocity) minIndex = i;
+      }
+      if (note.velocity > active[minIndex].velocity) {
+        const replaced = active[minIndex];
+        const replaceIdx = kept.indexOf(replaced);
+        if (replaceIdx >= 0) kept.splice(replaceIdx, 1);
+        active[minIndex] = note;
+        kept.push(note);
+      }
+    }
+  }
+  kept.sort((a, b) => a.startSec - b.startSec || a.midi - b.midi);
+  return kept;
+}
+
+async function renderMidiToPCM(midiData, options) {
+  const sampleRate = options.sampleRate;
+  const instrument = getInstrumentDefinition(options.instrument, options.duty);
+  const notes = limitPolyphony(midiData.notes, options.polyphony);
+  const releaseTail = instrument.adsr.r + 0.2;
+  const durationSec = (notes.length ? Math.max(...notes.map((n) => n.endSec)) : 0) + releaseTail;
+  const totalSamples = Math.max(1, Math.ceil(durationSec * sampleRate));
+  const pcm = new Float32Array(totalSamples);
+
+  const hardSampleLimit = 22050 * 60 * 6;
+  if (totalSamples > hardSampleLimit) {
+    throw new Error('長すぎるMIDIです。6分以内または低いサンプルレートで試してください');
+  }
+
+  for (let noteIndex = 0; noteIndex < notes.length; noteIndex++) {
+    const note = notes[noteIndex];
+    const freq = midiToFrequency(note.midi);
+    const baseAmp = (note.velocity / 127) * 0.22;
+    const startSample = Math.floor(note.startSec * sampleRate);
+    const hold = Math.max(0.01, note.endSec - note.startSec);
+    const noteLengthSec = hold + instrument.adsr.r;
+    const noteSamples = Math.ceil(noteLengthSec * sampleRate);
+
+    for (let i = 0; i < noteSamples; i++) {
+      const idx = startSample + i;
+      if (idx >= totalSamples) break;
+      const t = i / sampleRate;
+      const phase = 2 * Math.PI * freq * t;
+      const env = envAt(t, hold, instrument.adsr);
+      if (env <= 0) continue;
+      pcm[idx] += baseAmp * env * instrument.osc(phase, t);
+    }
+
+    if (noteIndex % 12 === 0) {
+      ui.progressText.textContent = `${Math.floor((noteIndex / Math.max(notes.length, 1)) * 100)}%`;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+
+  let maxAbs = 0;
+  for (let i = 0; i < pcm.length; i++) {
+    const a = Math.abs(pcm[i]);
+    if (a > maxAbs) maxAbs = a;
+  }
+  const norm = maxAbs > 0.98 ? 0.98 / maxAbs : 1;
+  for (let i = 0; i < pcm.length; i++) pcm[i] *= norm;
+
+  ui.progressText.textContent = '100%';
+  return { pcm, sampleRate, durationSec, noteCount: notes.length };
+}
+
+function pcmToAudioBuffer(rendered) {
+  ensureAudio();
+  const buffer = state.audioCtx.createBuffer(1, rendered.pcm.length, rendered.sampleRate);
+  buffer.copyToChannel(rendered.pcm, 0);
+  return buffer;
+}
+
+function drawWaveform(pcm) {
+  const canvas = ui.waveCanvas;
+  const ctx = canvas.getContext('2d');
+  const { width, height } = canvas;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = '#020617';
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, height / 2);
+  ctx.lineTo(width, height / 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = '#22c55e';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  const step = Math.max(1, Math.floor(pcm.length / width));
+  for (let x = 0; x < width; x++) {
+    const start = x * step;
+    const end = Math.min(pcm.length, start + step);
+    let min = 1;
+    let max = -1;
+    for (let i = start; i < end; i++) {
+      const v = pcm[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    const y1 = (1 - max) * 0.5 * height;
+    const y2 = (1 - min) * 0.5 * height;
+    ctx.moveTo(x, y1);
+    ctx.lineTo(x, y2);
+  }
+  ctx.stroke();
+}
+
+function updateFormula() {
+  const def = getInstrumentDefinition(ui.instrumentSelect.value, parseFloat(ui.dutySelect.value));
+  ui.formulaBox.textContent = def.formula;
+  ui.formulaNote.textContent = def.note;
+}
+
+async function handleRender() {
+  if (!state.midiArrayBuffer) {
+    setStatus('先にMIDIファイルを選んでください');
+    return;
+  }
+  if (state.rendering) return;
+
+  try {
+    state.rendering = true;
+    ui.renderBtn.disabled = true;
+    ui.playBtn.disabled = true;
+    ui.pauseBtn.disabled = true;
+    ui.stopBtn.disabled = true;
+    ui.seekSlider.disabled = true;
+    ui.progressText.textContent = '0%';
+    setStatus('MIDI解析中');
+
+    const midiData = parseMidi(state.midiArrayBuffer.slice(0));
+    state.midiData = midiData;
+    ui.noteCount.textContent = String(midiData.notes.length);
+    ui.durationText.textContent = secText(midiData.durationSec);
+    ui.tempoText.textContent = `${midiData.bpm.toFixed(1)} BPM`;    
+
+    if (!midiData.notes.length) {
+      throw new Error('ノート情報が見つかりません。ドラムのみのMIDIかもしれません');
+    }
+
+    setStatus('レンダリング中');
+    const rendered = await renderMidiToPCM(midiData, {
+      instrument: ui.instrumentSelect.value,
+      duty: parseFloat(ui.dutySelect.value),
+      sampleRate: parseInt(ui.sampleRateSelect.value, 10),
+      polyphony: parseInt(ui.polyphonySelect.value, 10)
+    });
+
+    state.renderedPCM = rendered;
+    state.renderedAudioBuffer = pcmToAudioBuffer(rendered);
+    state.pauseOffset = 0;
+    ui.seekSlider.disabled = false;
+    ui.playBtn.disabled = false;
+    ui.stopBtn.disabled = false;
+    drawWaveform(rendered.pcm);
+    setStatus('レンダリング完了。再生できます');
+  } catch (err) {
+    console.error(err);
+    setStatus(`エラー: ${err.message}`);
+  } finally {
+    state.rendering = false;
+    ui.renderBtn.disabled = false;
+  }
+}
+
+ui.midiFileInput.addEventListener('change', async (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  state.midiArrayBuffer = await file.arrayBuffer();
+  ui.fileName.textContent = file.name;
+  state.midiData = null;
+  state.renderedPCM = null;
+  state.renderedAudioBuffer = null;
+  stopPlayback(true);
+  setStatus('MIDIを読み込みました。レンダリングしてください');
+  ui.noteCount.textContent = '-';
+  ui.durationText.textContent = '-';
+  ui.tempoText.textContent = '-';
+  ui.progressText.textContent = '0%';
+});
+
+ui.renderBtn.addEventListener('click', handleRender);
+ui.playBtn.addEventListener('click', playRendered);
+ui.pauseBtn.addEventListener('click', pauseRendered);
+ui.stopBtn.addEventListener('click', () => {
+  stopPlayback(true);
+  setStatus('停止');
+});
+
+ui.seekSlider.addEventListener('input', () => {
+  if (!state.renderedAudioBuffer) return;
+  const dur = state.renderedAudioBuffer.duration;
+  state.pauseOffset = (parseInt(ui.seekSlider.value, 10) / 1000) * dur;
+  if (state.isPlaying) playRendered();
+});
+
+ui.instrumentSelect.addEventListener('change', updateFormula);
+ui.dutySelect.addEventListener('change', updateFormula);
+ui.volumeSlider.addEventListener('input', () => {
+  if (state.gainNode) state.gainNode.gain.value = parseFloat(ui.volumeSlider.value);
+});
+
+updateFormula();
+setStatus('MIDIを選んでください');
+
+</script>
+</body>
+</html>
